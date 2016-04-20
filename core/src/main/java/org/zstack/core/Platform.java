@@ -276,6 +276,16 @@ public class Platform {
     }
 
     static {
+
+        for(int i=0;i<10;i++){
+            logger.info("Zstack System will start after "+(10-i)+"seconds");
+            try {
+                Thread.sleep(1000L);
+            } catch (InterruptedException e) {
+                e.printStackTrace();
+            }
+        }
+
         try {
             msId = getUuid();
 
