@@ -244,7 +244,9 @@ public class AgentManagerImpl extends AbstractService implements AgentManager {
             runner.setPassword(msg.getPassword());
             runner.setUsername(msg.getUsername());
             runner.setAgentPort(msg.getAgentPort());
+            runner.setRunOnLocal(true);
             runner.setFullDeploy(msg.isDeployAnyway());
+            runner.setAnsibleExecutable("ansible-playbook");
             if (msg.getSshPort() != null) {
                 runner.setSshPort(msg.getSshPort());
             }

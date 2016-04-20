@@ -13,7 +13,6 @@ import org.zstack.core.statemachine.StateMachine;
 import org.zstack.core.statemachine.StateMachineImpl;
 import org.zstack.header.Component;
 import org.zstack.header.exception.CloudRuntimeException;
-import org.zstack.header.tag.SystemTagVO;
 import org.zstack.utils.BeanUtils;
 import org.zstack.utils.Linux;
 import org.zstack.utils.StringDSL;
@@ -34,6 +33,10 @@ import java.net.NetworkInterface;
 import java.net.SocketException;
 import java.util.*;
 
+import static org.zstack.utils.CollectionDSL.e;
+import static org.zstack.utils.CollectionDSL.map;
+import static org.zstack.utils.StringDSL.ln;
+
 public class Platform {
     private static final CLogger logger = CLoggerImpl.getLogger(Platform.class);
 
@@ -47,6 +50,8 @@ public class Platform {
     private static final Map<String, String> globalProperties = new HashMap<String, String>();
 
     private static Locale locale;
+
+    public static volatile boolean IS_RUNNING = true;
 
     private static Map<String, String> linkGlobalPropertyMap(String prefix) {
         Map<String, String> ret = new HashMap<String, String>();
@@ -215,12 +220,28 @@ public class Platform {
             }
 
             if (getGlobalProperty("DbFacadeDataSource.jdbcUrl") == null) {
-                String url = String.format("%s/zstack", dbUrl);
+                String url;
+                if (dbUrl.contains("{database}")) {
+                    url = ln(dbUrl).formatByMap(
+                            map(e("database", "zstack"))
+                    );
+                } else {
+                    url = String.format("%s/zstack", dbUrl);
+                }
+
                 System.setProperty("DbFacadeDataSource.jdbcUrl", url);
                 logger.debug(String.format("default DbFacadeDataSource.jdbcUrl to DB.url [%s]", url));
             }
             if (getGlobalProperty("RESTApiDataSource.jdbcUrl") == null) {
-                String url = String.format("%s/zstack_rest", dbUrl);
+                String url;
+                if (dbUrl.contains("{database}")) {
+                    url = ln(dbUrl).formatByMap(
+                            map(e("database", "zstack_rest"))
+                    );
+                } else {
+                    url = String.format("%s/zstack_rest", dbUrl);
+                }
+
                 System.setProperty("RESTApiDataSource.jdbcUrl", url);
                 logger.debug(String.format("default RESTApiDataSource.jdbcUrl to DB.url [%s]", url));
             }

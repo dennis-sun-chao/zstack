@@ -3,12 +3,12 @@ package org.zstack.storage.backup.sftp;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.web.util.UriComponentsBuilder;
 import org.zstack.core.CoreGlobalProperty;
+import org.zstack.core.ansible.AnsibleFacade;
 import org.zstack.core.ansible.AnsibleGlobalProperty;
 import org.zstack.core.ansible.AnsibleRunner;
 import org.zstack.core.ansible.SshFileMd5Checker;
-import org.zstack.core.config.GlobalConfigFacade;
 import org.zstack.core.errorcode.ErrorFacade;
-import org.zstack.header.configuration.ConfigurationConstant;
+import org.zstack.core.timeout.ApiTimeoutManager;
 import org.zstack.header.core.Completion;
 import org.zstack.header.core.NoErrorCompletion;
 import org.zstack.header.core.ReturnValueCompletion;
@@ -31,7 +31,6 @@ import org.zstack.utils.path.PathUtil;
 import java.net.URI;
 import java.net.URISyntaxException;
 import java.util.List;
-import java.util.concurrent.TimeUnit;
 
 public class SftpBackupStorage extends BackupStorageBase {
     private static final CLogger logger = Utils.getLogger(SftpBackupStorage.class);
@@ -39,9 +38,11 @@ public class SftpBackupStorage extends BackupStorageBase {
     @Autowired
     private RESTFacade restf;
     @Autowired
-    private GlobalConfigFacade gcf;
+    private AnsibleFacade asf;
     @Autowired
     private ErrorFacade errf;
+    @Autowired
+    private ApiTimeoutManager timeoutManager;
 
     private String agentPackageName = SftpBackupStorageGlobalProperty.AGENT_PACKAGE_NAME;
 
@@ -94,7 +95,7 @@ public class SftpBackupStorage extends BackupStorageBase {
             cmd.setUuid(uuid);
             cmd.setUrlScheme(scheme);
             cmd.setInstallPath(installPath);
-            cmd.setTimeout(SftpBackupStorageGlobalProperty.DOWNLOAD_CMD_TIMEOUT);
+            cmd.setTimeout(timeoutManager.getTimeout(cmd.getClass(), "3h"));
 
             restf.asyncJsonPost(buildUrl(SftpBackupStorageConstant.DOWNLOAD_IMAGE_PATH), cmd, new JsonAsyncRESTCallback<DownloadResponse>() {
                 @Override
@@ -121,7 +122,7 @@ public class SftpBackupStorage extends BackupStorageBase {
                 public Class<DownloadResponse> getReturnClass() {
                     return DownloadResponse.class;
                 }
-            }, TimeUnit.SECONDS, SftpBackupStorageGlobalProperty.DOWNLOAD_CMD_TIMEOUT);
+            });
         } catch (URISyntaxException e) {
             throw new CloudRuntimeException(e);
         }
@@ -342,7 +343,7 @@ public class SftpBackupStorage extends BackupStorageBase {
     private void handle(final GetSftpBackupStorageDownloadCredentialMsg msg) {
         final GetSftpBackupStorageDownloadCredentialReply reply = new GetSftpBackupStorageDownloadCredentialReply();
 
-        String key = gcf.getConfigValue(ConfigurationConstant.GlobalConfig.privateKey.getCategory(), ConfigurationConstant.GlobalConfig.privateKey.toString(), String.class);
+        String key = asf.getPrivateKey();
         reply.setHostname(getSelf().getHostname());
         reply.setSshKey(key);
         bus.reply(msg, reply);

@@ -149,6 +149,7 @@ public class KVMAgentCommands {
     }
     
     public static class PingCmd extends AgentCommand {
+        public String hostUuid;
     }
     
     public static class PingResponse extends AgentResponse {
@@ -401,7 +402,7 @@ public class KVMAgentCommands {
         private String deviceType = FILE;
         private String volumeUuid;
         private boolean useVirtio;
-        private int cacheMode;
+        private String cacheMode = "none";
 
         public VolumeTO() {
         }
@@ -451,10 +452,12 @@ public class KVMAgentCommands {
         public void setDeviceId(int deviceId) {
             this.deviceId = deviceId;
         }
-        public int getCacheMode() {
+
+        public String getCacheMode() {
             return cacheMode;
         }
-        public void setCacheMode(int cacheMode) {
+
+        public void setCacheMode(String cacheMode) {
             this.cacheMode = cacheMode;
         }
     }
@@ -727,7 +730,7 @@ public class KVMAgentCommands {
     }
     public static class GetVncPortResponse extends AgentResponse {
     	private int port;
-
+        private String protocol;
 		public int getPort() {
 			return port;
 		}
@@ -735,6 +738,14 @@ public class KVMAgentCommands {
 		public void setPort(int port) {
 			this.port = port;
 		}
+		
+		public String getProtocol() {
+                        return protocol;
+                }
+
+                public void setProtocol(String protocol) {
+                        this.protocol = protocol;
+                }
     }
     
     public static class StopVmCmd extends AgentCommand {
@@ -854,6 +865,15 @@ public class KVMAgentCommands {
         private String vmUuid;
         private String destHostIp;
         private String storageMigrationPolicy;
+        private String srcHostIp;
+
+        public String getSrcHostIp() {
+            return srcHostIp;
+        }
+
+        public void setSrcHostIp(String srcHostIp) {
+            this.srcHostIp = srcHostIp;
+        }
 
         public String getStorageMigrationPolicy() {
             return storageMigrationPolicy;

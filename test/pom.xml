@@ -7,7 +7,7 @@
     <parent>
         <artifactId>zstack</artifactId>
         <groupId>org.zstack</groupId>
-        <version>1.0.0</version>
+        <version>1.1.0</version>
         <relativePath>..</relativePath>
     </parent>
     <artifactId>test</artifactId>
@@ -107,6 +107,11 @@
         <dependency>
             <groupId>org.zstack</groupId>
             <artifactId>ceph</artifactId>
+            <version>${project.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>org.zstack</groupId>
+            <artifactId>sharedMountPointPrimaryStorage</artifactId>
             <version>${project.version}</version>
         </dependency>
         <dependency>
@@ -266,6 +271,7 @@
                         </goals>
                         <configuration>
                             <outputDirectory>target/test-classes</outputDirectory>
+                            <includeEmptyDirs>true</includeEmptyDirs>
                             <resources>
                                 <resource>
                                     <directory>../conf</directory>
@@ -283,6 +289,7 @@
                         </goals>
                         <configuration>
                             <outputDirectory>target/test-classes</outputDirectory>
+                            <includeEmptyDirs>true</includeEmptyDirs>
                             <resources>
                                 <resource>
                                     <directory>../premium/conf</directory>

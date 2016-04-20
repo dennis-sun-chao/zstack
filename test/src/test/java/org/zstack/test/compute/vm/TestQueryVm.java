@@ -6,8 +6,9 @@ import org.junit.Test;
 import org.zstack.core.cloudbus.CloudBus;
 import org.zstack.core.componentloader.ComponentLoader;
 import org.zstack.core.db.DatabaseFacade;
-import org.zstack.core.db.SimpleQuery;
+import org.zstack.header.host.HostInventory;
 import org.zstack.header.identity.*;
+import org.zstack.header.query.QueryCondition;
 import org.zstack.header.query.QueryOp;
 import org.zstack.header.vm.APIQueryVmInstanceMsg;
 import org.zstack.header.vm.APIQueryVmInstanceReply;
@@ -19,6 +20,11 @@ import org.zstack.test.DBUtil;
 import org.zstack.test.deployer.Deployer;
 import org.zstack.test.identity.IdentityCreator;
 import org.zstack.test.search.QueryTestValidator;
+
+import java.util.ArrayList;
+import java.util.Map;
+
+import static org.zstack.utils.CollectionDSL.list;
 
 /**
  * 
@@ -71,5 +77,19 @@ public class TestQueryVm {
         Assert.assertEquals(1, r.getInventories().size());
         AccountResourceRefInventory inv = r.getInventories().get(0);
         Assert.assertEquals(vm.getUuid(), inv.getResourceUuid());
+
+        HostInventory host = deployer.hosts.get("TestHost1");
+        Map<String, AccountInventory> ret = api.getResourceAccount(list(vm.getUuid(), host.getUuid()));
+        Assert.assertEquals(2, ret.size());
+        AccountInventory acnt = ret.get(vm.getUuid());
+        Assert.assertEquals(test.getUuid(), acnt.getUuid());
+        acnt = ret.get(host.getUuid());
+        Assert.assertEquals(AccountConstant.INITIAL_SYSTEM_ADMIN_UUID, acnt.getUuid());
+
+        api.changeResourceOwner(vm.getUuid(), AccountConstant.INITIAL_SYSTEM_ADMIN_UUID);
+        APIQueryVmInstanceMsg msg = new APIQueryVmInstanceMsg();
+        msg.setConditions(new ArrayList<QueryCondition>());
+        APIQueryVmInstanceReply reply = api.query(msg, APIQueryVmInstanceReply.class, session);
+        Assert.assertEquals(0, reply.getInventories().size());
     }
 }

@@ -352,6 +352,8 @@ public class VolumeBase implements Volume {
                 done(new FlowDoneHandler(msg) {
                     @Override
                     public void handle(Map data) {
+                        VolumeStatus oldStatus = self.getStatus();
+
                         if (deletionPolicy == VolumeDeletionPolicy.Direct) {
                             dbf.remove(self);
                         } else if (deletionPolicy == VolumeDeletionPolicy.Delay) {
@@ -361,6 +363,8 @@ public class VolumeBase implements Volume {
                             self.setStatus(VolumeStatus.Deleted);
                             self = dbf.updateAndRefresh(self);
                         }
+
+                        new FireVolumeCanonicalEvent().fireVolumeStatusChangedEvent(oldStatus, getSelfInventory());
 
                         CollectionUtils.safeForEach(pluginRgty.getExtensionList(VolumeDeletionExtensionPoint.class), new ForEachFunction<VolumeDeletionExtensionPoint>() {
                             @Override
@@ -444,12 +448,16 @@ public class VolumeBase implements Volume {
             }
         });
 
+        VolumeStatus oldStatus = self.getStatus();
+
         if (self.getInstallPath() != null) {
             self.setStatus(VolumeStatus.Ready);
         } else {
             self.setStatus(VolumeStatus.NotInstantiated);
         }
         self = dbf.updateAndRefresh(self);
+
+        new FireVolumeCanonicalEvent().fireVolumeStatusChangedEvent(oldStatus, getSelfInventory());
 
         CollectionUtils.safeForEach(exts, new ForEachFunction<RecoverDataVolumeExtensionPoint>() {
             @Override
@@ -623,11 +631,13 @@ public class VolumeBase implements Volume {
 
     private void delete(boolean forceDelete, boolean detachBeforeDeleting, final Completion completion) {
         final String issuer = VolumeVO.class.getSimpleName();
-        VolumeDeletionStruct struct = new VolumeDeletionStruct(getSelfInventory());
+        VolumeDeletionStruct struct = new VolumeDeletionStruct();
+        struct.setInventory(getSelfInventory());
         struct.setDetachBeforeDeleting(detachBeforeDeleting);
+        struct.setDeletionPolicy(deletionPolicyMgr.getDeletionPolicy(self.getUuid()).toString());
         final List<VolumeDeletionStruct> ctx = list(struct);
         FlowChain chain = FlowChainBuilder.newSimpleFlowChain();
-        chain.setName(String.format("delete-data-volume"));
+        chain.setName("delete-data-volume");
         if (!forceDelete) {
             chain.then(new NoRollbackFlow() {
                 @Override

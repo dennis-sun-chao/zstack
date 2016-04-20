@@ -14,6 +14,11 @@ import org.zstack.header.rest.RESTFacade;
 import org.zstack.network.service.flat.FlatDhcpBackend.*;
 import org.zstack.network.service.flat.FlatDnsBackend.SetDnsCmd;
 import org.zstack.network.service.flat.FlatDnsBackend.SetDnsRsp;
+import org.zstack.network.service.flat.FlatEipBackend.ApplyEipCmd;
+import org.zstack.network.service.flat.FlatEipBackend.BatchApplyEipCmd;
+import org.zstack.network.service.flat.FlatEipBackend.BatchDeleteEipCmd;
+import org.zstack.network.service.flat.FlatEipBackend.DeleteEipCmd;
+import org.zstack.network.service.flat.FlatNetworkServiceConstant.AgentRsp;
 import org.zstack.network.service.flat.FlatUserdataBackend.ApplyUserdataCmd;
 import org.zstack.network.service.flat.FlatUserdataBackend.ApplyUserdataRsp;
 import org.zstack.network.service.flat.FlatUserdataBackend.ReleaseUserdataCmd;
@@ -59,6 +64,14 @@ public class FlatNetworkServiceSimulator {
         return null;
     }
 
+    @RequestMapping(value = FlatDhcpBackend.RESET_DEFAULT_GATEWAY_PATH, method = RequestMethod.POST)
+    public @ResponseBody String resetDefaultGateway(HttpEntity<String> entity) {
+        ResetDefaultGatewayCmd cmd = JSONObjectUtil.toObject(entity.getBody(), ResetDefaultGatewayCmd.class);
+        config.resetDefaultGatewayCmds.add(cmd);
+        reply(entity, new ResetDefaultGatewayRsp());
+        return null;
+    }
+
     @RequestMapping(value = FlatDhcpBackend.RELEASE_DHCP_PATH, method = RequestMethod.POST)
     public @ResponseBody String releaseDhcp(HttpEntity<String> entity) {
         ReleaseDhcpCmd cmd = JSONObjectUtil.toObject(entity.getBody(), ReleaseDhcpCmd.class);
@@ -91,6 +104,51 @@ public class FlatNetworkServiceSimulator {
         ReleaseUserdataCmd cmd = JSONObjectUtil.toObject(entity.getBody(), ReleaseUserdataCmd.class);
         config.releaseUserdataCmds.add(cmd);
         ReleaseUserdataRsp rsp = new ReleaseUserdataRsp();
+        reply(entity, rsp);
+        return null;
+    }
+
+    @RequestMapping(value = FlatDhcpBackend.DHCP_CONNECT_PATH, method = RequestMethod.POST)
+    public @ResponseBody String connect(HttpEntity<String> entity) {
+        ConnectCmd cmd = JSONObjectUtil.toObject(entity.getBody(), ConnectCmd.class);
+        config.connectCmds.add(cmd);
+        ConnectRsp rsp = new ConnectRsp();
+        reply(entity, rsp);
+        return null;
+    }
+
+    @RequestMapping(value = FlatEipBackend.APPLY_EIP_PATH, method = RequestMethod.POST)
+    public @ResponseBody String applyEip(HttpEntity<String> entity) {
+        ApplyEipCmd cmd = JSONObjectUtil.toObject(entity.getBody(), ApplyEipCmd.class);
+        config.applyEipCmds.add(cmd);
+        AgentRsp rsp = new AgentRsp();
+        reply(entity, rsp);
+        return null;
+    }
+
+    @RequestMapping(value = FlatEipBackend.DELETE_EIP_PATH, method = RequestMethod.POST)
+    public @ResponseBody String deleteEip(HttpEntity<String> entity) {
+        DeleteEipCmd cmd = JSONObjectUtil.toObject(entity.getBody(), DeleteEipCmd.class);
+        config.deleteEipCmds.add(cmd);
+        AgentRsp rsp = new AgentRsp();
+        reply(entity, rsp);
+        return null;
+    }
+
+    @RequestMapping(value = FlatEipBackend.BATCH_APPLY_EIP_PATH, method = RequestMethod.POST)
+    public @ResponseBody String batchApplyEip(HttpEntity<String> entity) {
+        BatchApplyEipCmd cmd = JSONObjectUtil.toObject(entity.getBody(), BatchApplyEipCmd.class);
+        config.batchApplyEipCmds.add(cmd);
+        AgentRsp rsp = new AgentRsp();
+        reply(entity, rsp);
+        return null;
+    }
+
+    @RequestMapping(value = FlatEipBackend.BATCH_DELETE_EIP_PATH, method = RequestMethod.POST)
+    public @ResponseBody String batchDeleteEip(HttpEntity<String> entity) {
+        BatchDeleteEipCmd cmd = JSONObjectUtil.toObject(entity.getBody(), BatchDeleteEipCmd.class);
+        config.batchDeleteEipCmds.add(cmd);
+        AgentRsp rsp = new AgentRsp();
         reply(entity, rsp);
         return null;
     }

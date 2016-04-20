@@ -8,6 +8,7 @@ import org.zstack.core.cascade.CascadeFacade;
 import org.zstack.core.cloudbus.CloudBus;
 import org.zstack.core.cloudbus.CloudBusCallBack;
 import org.zstack.core.cloudbus.CloudBusListCallBack;
+import org.zstack.core.cloudbus.EventFacade;
 import org.zstack.core.componentloader.PluginRegistry;
 import org.zstack.core.config.GlobalConfigFacade;
 import org.zstack.core.db.DatabaseFacade;
@@ -27,6 +28,8 @@ import org.zstack.header.core.Completion;
 import org.zstack.header.core.NoErrorCompletion;
 import org.zstack.header.errorcode.ErrorCode;
 import org.zstack.header.host.*;
+import org.zstack.header.host.HostCanonicalEvents.HostDeletedData;
+import org.zstack.header.host.HostCanonicalEvents.HostStatusChangedData;
 import org.zstack.header.host.HostMaintenancePolicyExtensionPoint.HostMaintenancePolicy;
 import org.zstack.header.message.APIDeleteMessage;
 import org.zstack.header.message.APIMessage;
@@ -61,8 +64,6 @@ public abstract class HostBase extends AbstractHost {
 	protected GlobalConfigFacade gcf;
 	@Autowired
 	protected HostManager hostMgr;
-	@Autowired
-	protected HostNotifyPointEmitter notifyEmitter;
     @Autowired
     protected CascadeFacade casf;
     @Autowired
@@ -71,6 +72,8 @@ public abstract class HostBase extends AbstractHost {
     protected HostTracker tracker;
     @Autowired
     protected PluginRegistry pluginRgty;
+    @Autowired
+    protected EventFacade evtf;
 
 	protected final String id;
 
@@ -87,7 +90,7 @@ public abstract class HostBase extends AbstractHost {
 
     protected void checkStatus() {
         if (HostStatus.Connected != self.getStatus()) {
-            throw new OperationFailureException(errf.stringToOperationError(String.format("host[uuid:%s, name:%s] is in status[%s], cannot perform required operation", self.getUuid(), self.getName(), self.getStatus())));
+            throw new OperationFailureException(errf.instantiateErrorCode(HostErrors.HOST_IS_DISCONNECTED, String.format("host[uuid:%s, name:%s] is in status[%s], cannot perform required operation", self.getUuid(), self.getName(), self.getStatus())));
         }
     }
 
@@ -378,6 +381,11 @@ public abstract class HostBase extends AbstractHost {
             public void handle(Map data) {
                 casf.asyncCascadeFull(CascadeConstant.DELETION_CLEANUP_CODE, issuer, ctx, new NopeCompletion());
                 bus.publish(evt);
+
+                HostDeletedData d = new HostDeletedData();
+                d.setInventory(HostInventory.valueOf(self));
+                d.setHostUuid(self.getUuid());
+                evtf.fire(HostCanonicalEvents.HOST_DELETED_PATH, d);
             }
         }).error(new FlowErrorHandler(msg) {
             @Override
@@ -729,7 +737,13 @@ public abstract class HostBase extends AbstractHost {
 	    self.setStatus(next);
 	    self = dbf.updateAndRefresh(self);
 	    logger.debug(String.format("Host %s [uuid:%s] changed connection state from %s to %s", self.getName(), self.getUuid(), before, next));
-	    notifyEmitter.notifyHostConnectionChange(HostInventory.valueOf(self), before, next);
+
+        HostStatusChangedData data = new HostStatusChangedData();
+        data.setHostUuid(self.getUuid());
+        data.setNewStatus(next.toString());
+        data.setOldStatus(before.toString());
+        data.setInventory(HostInventory.valueOf(self));
+        evtf.fire(HostCanonicalEvents.HOST_STATUS_CHANGED_PATH, data);
 	}
 
 	private void handle(final ConnectHostMsg msg) {

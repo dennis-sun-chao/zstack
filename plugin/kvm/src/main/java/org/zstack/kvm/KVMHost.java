@@ -8,7 +8,6 @@ import org.zstack.compute.host.HostBase;
 import org.zstack.compute.host.HostSystemTags;
 import org.zstack.compute.vm.VmSystemTags;
 import org.zstack.core.CoreGlobalProperty;
-import org.zstack.core.Platform;
 import org.zstack.core.ansible.AnsibleConstant;
 import org.zstack.core.ansible.AnsibleGlobalProperty;
 import org.zstack.core.ansible.AnsibleRunner;
@@ -18,7 +17,8 @@ import org.zstack.core.db.SimpleQuery.Op;
 import org.zstack.core.errorcode.ErrorFacade;
 import org.zstack.core.thread.ChainTask;
 import org.zstack.core.thread.SyncTaskChain;
-import org.zstack.core.workflow.*;
+import org.zstack.core.workflow.FlowChainBuilder;
+import org.zstack.core.workflow.ShareFlow;
 import org.zstack.header.core.Completion;
 import org.zstack.header.core.NoErrorCompletion;
 import org.zstack.header.core.workflow.*;
@@ -28,7 +28,6 @@ import org.zstack.header.errorcode.SysErrors;
 import org.zstack.header.exception.CloudRuntimeException;
 import org.zstack.header.host.*;
 import org.zstack.header.host.MigrateVmOnHypervisorMsg.StorageMigrationPolicy;
-import org.zstack.header.image.Image;
 import org.zstack.header.image.ImagePlatform;
 import org.zstack.header.message.APIMessage;
 import org.zstack.header.message.Message;
@@ -41,7 +40,6 @@ import org.zstack.header.vm.*;
 import org.zstack.header.volume.VolumeInventory;
 import org.zstack.kvm.KVMAgentCommands.*;
 import org.zstack.kvm.KVMConstant.KvmVmState;
-import org.zstack.tag.TagManager;
 import org.zstack.utils.ShellResult;
 import org.zstack.utils.ShellUtils;
 import org.zstack.utils.Utils;
@@ -69,8 +67,6 @@ public class KVMHost extends HostBase implements Host {
     private KVMExtensionEmitter extEmitter;
     @Autowired
     private ErrorFacade errf;
-    @Autowired
-    private TagManager tagMgr;
 
     private KVMHostContext context;
 
@@ -231,9 +227,91 @@ public class KVMHost extends HostBase implements Host {
             handle((CheckVmStateOnHypervisorMsg) msg);
         } else if (msg instanceof GetVmConsoleAddressFromHostMsg) {
             handle((GetVmConsoleAddressFromHostMsg) msg);
+        } else if (msg instanceof KvmRunShellMsg) {
+            handle((KvmRunShellMsg) msg);
+        } else if (msg instanceof VmDirectlyDestroyOnHypervisorMsg) {
+            handle((VmDirectlyDestroyOnHypervisorMsg) msg);
         } else {
             super.handleLocalMessage(msg);
         }
+    }
+
+    private void directlyDestroy(final VmDirectlyDestroyOnHypervisorMsg msg, final NoErrorCompletion completion) {
+        checkStatus();
+
+        final VmDirectlyDestroyOnHypervisorReply reply = new VmDirectlyDestroyOnHypervisorReply();
+        DestroyVmCmd cmd = new DestroyVmCmd();
+        cmd.setUuid(msg.getVmUuid());
+        restf.asyncJsonPost(destroyVmPath, cmd, new JsonAsyncRESTCallback<DestroyVmResponse>(msg, completion) {
+            @Override
+            public void fail(ErrorCode err) {
+                reply.setError(err);
+                bus.reply(msg, reply);
+                completion.done();
+            }
+
+            @Override
+            public void success(DestroyVmResponse ret) {
+                if (!ret.isSuccess()) {
+                    reply.setError(errf.instantiateErrorCode(HostErrors.FAILED_TO_DESTROY_VM_ON_HYPERVISOR, ret.getError()));
+                }
+
+                bus.reply(msg, reply);
+                completion.done();
+            }
+
+            @Override
+            public Class<DestroyVmResponse> getReturnClass() {
+                return DestroyVmResponse.class;
+            }
+        });
+    }
+
+    private void handle(final VmDirectlyDestroyOnHypervisorMsg msg) {
+        thdf.chainSubmit(new ChainTask(msg) {
+            @Override
+            public String getSyncSignature() {
+                return id;
+            }
+
+            @Override
+            public void run(final SyncTaskChain chain) {
+                directlyDestroy(msg, new NoErrorCompletion(chain) {
+                    @Override
+                    public void done() {
+                        chain.next();
+                    }
+                });
+            }
+
+            @Override
+            public String getName() {
+                return String.format("directly-delete-vm-%s-msg-on-kvm-%s", msg.getVmUuid(), self.getUuid());
+            }
+        });
+    }
+
+    private void handle(KvmRunShellMsg msg) {
+        Ssh ssh = new Ssh();
+        ssh.setHostname(self.getManagementIp());
+        ssh.setPort(22);
+        ssh.setUsername(getSelf().getUsername());
+        ssh.setPassword(getSelf().getPassword());
+        ssh.shell(msg.getScript());
+        SshResult result = ssh.runAndClose();
+
+        KvmRunShellReply reply = new KvmRunShellReply();
+        if (result.isSshFailure()) {
+            reply.setError(errf.stringToOperationError(
+                    String.format("unable to connect to KVM[ip:%s, username:%s] to do DNS check, please check if username/password is wrong; %s", self.getManagementIp(), getSelf().getUsername(), result.getExitErrorMessage())
+            ));
+        } else {
+            reply.setStdout(result.getStdout());
+            reply.setStderr(result.getStderr());
+            reply.setReturnCode(result.getReturnCode());
+        }
+
+        bus.reply(msg, reply);
     }
 
     private void handle(final GetVmConsoleAddressFromHostMsg msg) {
@@ -254,7 +332,7 @@ public class KVMHost extends HostBase implements Host {
                     reply.setError(errf.stringToOperationError(ret.getError()));
                 } else {
                     reply.setHostIp(self.getManagementIp());
-                    reply.setProtocol(KVMGlobalConfig.VM_CONSOLE_MODE.value());
+                    reply.setProtocol(ret.getProtocol());
                     reply.setPort(ret.getPort());
                 }
                 bus.reply(msg, reply);
@@ -807,6 +885,7 @@ public class KVMHost extends HostBase implements Host {
 
         MigrateVmCmd cmd = new MigrateVmCmd();
         cmd.setDestHostIp(hostIp);
+        cmd.setSrcHostIp(self.getManagementIp());
         cmd.setStorageMigrationPolicy(storageMigrationPolicy == null ? null : storageMigrationPolicy.toString());
         cmd.setVmUuid(vmUuid);
         final String fvmuuid = vmUuid;
@@ -963,7 +1042,7 @@ public class KVMHost extends HostBase implements Host {
             public Class<AttachNicResponse> getReturnClass() {
                 return AttachNicResponse.class;
             }
-        }, TimeUnit.SECONDS, 300);
+        });
     }
 
 
@@ -1046,7 +1125,7 @@ public class KVMHost extends HostBase implements Host {
             public Class<DetachDataVolumeResponse> getReturnClass() {
                 return DetachDataVolumeResponse.class;
             }
-        }, TimeUnit.SECONDS, 180);
+        });
     }
 
     private void handle(final AttachVolumeToVmOnHypervisorMsg msg) {
@@ -1092,6 +1171,7 @@ public class KVMHost extends HostBase implements Host {
         // so for Windows, use virtio as well
         to.setUseVirtio(ImagePlatform.Windows.toString().equals(vm.getPlatform()) ||
                 ImagePlatform.valueOf(vm.getPlatform()).isParaVirtualization());
+        to.setCacheMode(KVMGlobalConfig.LIBVIRT_CACHE_MODE.value());
 
         final AttachVolumeToVmOnHypervisorReply reply = new AttachVolumeToVmOnHypervisorReply();
         final AttachDataVolumeCmd cmd = new AttachDataVolumeCmd();
@@ -1127,7 +1207,7 @@ public class KVMHost extends HostBase implements Host {
                 return AttachDataVolumeResponse.class;
             }
 
-        }, TimeUnit.SECONDS, 180);
+        });
     }
 
     private void handle(final DestroyVmOnHypervisorMsg msg) {
@@ -1205,7 +1285,7 @@ public class KVMHost extends HostBase implements Host {
             public Class<DestroyVmResponse> getReturnClass() {
                 return DestroyVmResponse.class;
             }
-        }, TimeUnit.SECONDS, TimeUnit.MILLISECONDS.toSeconds(msg.getTimeout()));
+        });
     }
 
     private void handle(final RebootVmOnHypervisorMsg msg) {
@@ -1301,7 +1381,7 @@ public class KVMHost extends HostBase implements Host {
                 return RebootVmResponse.class;
             }
 
-        }, TimeUnit.SECONDS, timeout);
+        });
     }
 
     private void handle(final StopVmOnHypervisorMsg msg) {
@@ -1380,7 +1460,7 @@ public class KVMHost extends HostBase implements Host {
                 return StopVmResponse.class;
             }
 
-        }, TimeUnit.SECONDS, TimeUnit.MILLISECONDS.toSeconds(msg.getTimeout()));
+        });
     }
 
     private void handle(final CreateVmOnHypervisorMsg msg) {
@@ -1449,7 +1529,6 @@ public class KVMHost extends HostBase implements Host {
         boolean virtio;
         String consoleMode;
         String nestedVirtualization;
-        int cacheMode;
         String platform = spec.getVmInventory().getPlatform() == null ? spec.getImageSpec().getInventory().getPlatform() :
                 spec.getVmInventory().getPlatform();
 
@@ -1490,14 +1569,13 @@ public class KVMHost extends HostBase implements Host {
         cmd.setUseVirtio(virtio);
         VolumeTO rootVolume = new VolumeTO();
         consoleMode = KVMGlobalConfig.VM_CONSOLE_MODE.value(String.class);
-        cacheMode = KVMGlobalConfig.LIBVIRT_CACHE_MODE.value(Integer.class);
         nestedVirtualization = KVMGlobalConfig.NESTED_VIRTUALIZATION.value(String.class);
         rootVolume.setInstallPath(spec.getDestRootVolume().getInstallPath());
         rootVolume.setDeviceId(spec.getDestRootVolume().getDeviceId());
         rootVolume.setDeviceType(getVolumeTOType(spec.getDestRootVolume()));
         rootVolume.setVolumeUuid(spec.getDestRootVolume().getUuid());
         rootVolume.setUseVirtio(virtio);
-        rootVolume.setCacheMode(cacheMode);
+        rootVolume.setCacheMode(KVMGlobalConfig.LIBVIRT_CACHE_MODE.value());
         cmd.setConsoleMode(consoleMode);
         cmd.setNestedVirtualization(nestedVirtualization);
         cmd.setRootVolume(rootVolume);
@@ -1510,7 +1588,7 @@ public class KVMHost extends HostBase implements Host {
             v.setDeviceType(getVolumeTOType(data));
             v.setVolumeUuid(data.getUuid());
             v.setUseVirtio(virtio);
-            v.setCacheMode(cacheMode);
+            v.setCacheMode(KVMGlobalConfig.LIBVIRT_CACHE_MODE.value());
             dataVolumes.add(v);
         }
         cmd.setDataVolumes(dataVolumes);
@@ -1578,7 +1656,7 @@ public class KVMHost extends HostBase implements Host {
             public Class<StartVmResponse> getReturnClass() {
                 return StartVmResponse.class;
             }
-        }, TimeUnit.SECONDS, TimeUnit.MILLISECONDS.toSeconds(msg.getTimeout()));
+        });
     }
 
     private void handle(final StartVmOnHypervisorMsg msg) {
@@ -1685,6 +1763,7 @@ public class KVMHost extends HostBase implements Host {
 
     protected void pingHook(final Completion completion) {
         PingCmd cmd = new PingCmd();
+        cmd.hostUuid = self.getUuid();
         restf.asyncJsonPost(pingPath, cmd, new JsonAsyncRESTCallback<PingResponse>(completion) {
             @Override
             public void fail(ErrorCode err) {
@@ -1770,23 +1849,29 @@ public class KVMHost extends HostBase implements Host {
             throw new OperationFailureException(errCode);
         }
 
+        FlowChain chain = FlowChainBuilder.newSimpleFlowChain();
+        chain.setName(String.format("continue-connecting-kvm-host-%s-%s", self.getManagementIp(), self.getUuid()));
         for (KVMHostConnectExtensionPoint extp : factory.getConnectExtensions()) {
-            try {
-                KVMHostConnectedContext ctx = new KVMHostConnectedContext();
-                ctx.setInventory((KVMHostInventory) getSelfInventory());
-                ctx.setNewAddedHost(newAdded);
-                extp.kvmHostConnected(ctx);
-            } catch (OperationFailureException oe) {
-                throw new OperationFailureException(errf.instantiateErrorCode(HostErrors.CONNECTION_ERROR, oe.getErrorCode()));
-            } catch (Exception e) {
-                String err = String.format("connection error for KVM host[uuid:%s, ip:%s] when calling %s, because %s", self.getUuid(),
-                        self.getManagementIp(), extp.getClass().getName(), e.getMessage());
-                logger.warn(err, e);
-                throw new OperationFailureException(errf.instantiateErrorCode(HostErrors.CONNECTION_ERROR, err));
-            }
+            KVMHostConnectedContext ctx = new KVMHostConnectedContext();
+            ctx.setInventory((KVMHostInventory) getSelfInventory());
+            ctx.setNewAddedHost(newAdded);
+
+            chain.then(extp.createKvmHostConnectingFlow(ctx));
         }
 
-        completion.success();
+        chain.done(new FlowDoneHandler(completion) {
+            @Override
+            public void handle(Map data) {
+                completion.success();
+            }
+        }).error(new FlowErrorHandler(completion) {
+            @Override
+            public void handle(ErrorCode errCode, Map data) {
+                String err = String.format("connection error for KVM host[uuid:%s, ip:%s]", self.getUuid(),
+                        self.getManagementIp());
+                completion.fail(errf.instantiateErrorCode(HostErrors.CONNECTION_ERROR, err, errCode));
+            }
+        }).start();
     }
 
     private void createHostVersionSystemTags(String distro, String release, String version) {

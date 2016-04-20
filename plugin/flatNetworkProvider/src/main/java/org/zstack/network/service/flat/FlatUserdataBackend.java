@@ -6,6 +6,7 @@ import org.zstack.core.cloudbus.CloudBus;
 import org.zstack.core.cloudbus.CloudBusCallBack;
 import org.zstack.core.db.DatabaseFacade;
 import org.zstack.core.errorcode.ErrorFacade;
+import org.zstack.core.timeout.ApiTimeoutManager;
 import org.zstack.core.workflow.FlowChainBuilder;
 import org.zstack.core.workflow.ShareFlow;
 import org.zstack.header.core.Completion;
@@ -22,12 +23,12 @@ import org.zstack.kvm.KVMHostAsyncHttpCallMsg;
 import org.zstack.kvm.KVMHostAsyncHttpCallReply;
 import org.zstack.kvm.KVMSystemTags;
 import org.zstack.network.service.userdata.UserdataBackend;
+import org.zstack.network.service.userdata.UserdataGlobalProperty;
 import org.zstack.network.service.userdata.UserdataStruct;
 import org.zstack.utils.CollectionUtils;
 import org.zstack.utils.TagUtils;
 import org.zstack.utils.function.Function;
 
-import javax.persistence.Tuple;
 import javax.persistence.TypedQuery;
 import java.util.List;
 import java.util.Map;
@@ -42,6 +43,8 @@ public class FlatUserdataBackend implements UserdataBackend {
     private DatabaseFacade dbf;
     @Autowired
     private ErrorFacade errf;
+    @Autowired
+    private ApiTimeoutManager timeoutMgr;
 
     public static final String APPLY_USER_DATA = "/flatnetworkprovider/userdata/apply";
     public static final String RELEASE_USER_DATA = "/flatnetworkprovider/userdata/release";
@@ -56,6 +59,7 @@ public class FlatUserdataBackend implements UserdataBackend {
         public String vmIp;
         public String dhcpServerIp;
         public String bridgeName;
+        public int port;
     }
 
     public static class ApplyUserdataRsp extends KVMAgentCommands.AgentResponse {
@@ -126,10 +130,12 @@ public class FlatUserdataBackend implements UserdataBackend {
                             }
                         });
                         cmd.bridgeName = getBridgeNameFromL3NetworkUuid(struct.getL3NetworkUuid());
+                        cmd.port = UserdataGlobalProperty.HOST_PORT;
 
                         KVMHostAsyncHttpCallMsg msg = new KVMHostAsyncHttpCallMsg();
                         msg.setHostUuid(struct.getVmSpec().getDestHost().getUuid());
                         msg.setCommand(cmd);
+                        msg.setCommandTimeout(timeoutMgr.getTimeout(cmd.getClass(), "5m"));
                         msg.setPath(APPLY_USER_DATA);
                         bus.makeTargetServiceIdByResourceUuid(msg, HostConstant.SERVICE_ID, struct.getVmSpec().getDestHost().getUuid());
                         bus.send(msg, new CloudBusCallBack(trigger) {
@@ -210,6 +216,7 @@ public class FlatUserdataBackend implements UserdataBackend {
                         KVMHostAsyncHttpCallMsg msg = new KVMHostAsyncHttpCallMsg();
                         msg.setHostUuid(struct.getVmSpec().getDestHost().getUuid());
                         msg.setCommand(cmd);
+                        msg.setCommandTimeout(timeoutMgr.getTimeout(cmd.getClass(), "5m"));
                         msg.setPath(RELEASE_USER_DATA);
                         bus.makeTargetServiceIdByResourceUuid(msg, HostConstant.SERVICE_ID, struct.getVmSpec().getDestHost().getUuid());
                         bus.send(msg, new CloudBusCallBack(trigger) {

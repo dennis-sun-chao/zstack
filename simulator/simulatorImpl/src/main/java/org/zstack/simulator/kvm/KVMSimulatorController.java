@@ -10,7 +10,6 @@ import org.zstack.header.exception.CloudRuntimeException;
 import org.zstack.header.rest.RESTFacade;
 import org.zstack.kvm.KVMAgentCommands;
 import org.zstack.kvm.KVMAgentCommands.*;
-import org.zstack.kvm.KVMAgentCommands.MergeSnapshotCmd;
 import org.zstack.kvm.KVMConstant;
 import org.zstack.kvm.KVMConstant.KvmVmState;
 import org.zstack.kvm.KVMSecurityGroupBackend;
@@ -109,6 +108,11 @@ public class KVMSimulatorController {
 
     private void doDetachNic(HttpEntity<String> entity) {
         DetachNicCommand cmd = JSONObjectUtil.toObject(entity.getBody(), DetachNicCommand.class);
+
+        if (!config.detachNicSuccess) {
+            throw new RuntimeException("on purpose");
+        }
+
         DetachNicRsp rsp = new DetachNicRsp();
         config.detachNicCommands.add(cmd);
         replyer.reply(entity, rsp);
@@ -159,13 +163,18 @@ public class KVMSimulatorController {
     private void ping(HttpEntity<String> entity) {
         PingCmd cmd = JSONObjectUtil.toObject(entity.getBody(), PingCmd.class);
         PingResponse rsp = new PingResponse();
-        if (config.pingSuccess) {
-            rsp.setHostUuid(config.simulatorHostUuid);
-        } else {
-            rsp.setError("fail on purpose");
+        if (!config.pingSuccess) {
             rsp.setSuccess(false);
+            rsp.setError("on purpose");
         }
 
+        Boolean s = config.pingSuccessMap.get(cmd.hostUuid);
+        if (s != null && !s) {
+            rsp.setSuccess(false);
+            rsp.setError("on purpose");
+        }
+
+        rsp.setHostUuid(config.connectHostUuids.get(cmd.hostUuid));
         replyer.reply(entity, rsp);
     }
 
@@ -173,7 +182,7 @@ public class KVMSimulatorController {
     public @ResponseBody String connect(@RequestBody String body) {
         ConnectCmd cmd = JSONObjectUtil.toObject(body, ConnectCmd.class);
         
-        config.simulatorHostUuid = cmd.getHostUuid();
+        config.connectHostUuids.put(cmd.getHostUuid(), cmd.getHostUuid());
         
         if (config.connectException) {
             throw new CloudRuntimeException("connect exception on purpose");

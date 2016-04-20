@@ -1,15 +1,21 @@
 package org.zstack.network.service;
 
+import org.zstack.core.db.SimpleQuery;
+import org.zstack.core.db.SimpleQuery.Op;
 import org.zstack.header.Component;
 import org.zstack.header.core.Completion;
 import org.zstack.header.core.NoErrorCompletion;
 import org.zstack.header.errorcode.ErrorCode;
 import org.zstack.header.exception.CloudRuntimeException;
 import org.zstack.header.network.l3.L3NetworkInventory;
+import org.zstack.header.network.l3.L3NetworkVO;
+import org.zstack.header.network.l3.L3NetworkVO_;
 import org.zstack.header.network.service.DhcpStruct;
 import org.zstack.header.network.service.NetworkServiceDhcpBackend;
 import org.zstack.header.network.service.NetworkServiceProviderType;
 import org.zstack.header.network.service.NetworkServiceType;
+import org.zstack.header.vm.VmDefaultL3NetworkChangedExtensionPoint;
+import org.zstack.header.vm.VmInstanceInventory;
 import org.zstack.header.vm.VmInstanceSpec;
 import org.zstack.header.vm.VmInstanceSpec.HostName;
 import org.zstack.header.vm.VmNicInventory;
@@ -26,7 +32,7 @@ import java.util.*;
  * Time: 7:53 PM
  * To change this template use File | Settings | File Templates.
  */
-public class DhcpExtension extends AbstractNetworkServiceExtension implements Component {
+public class DhcpExtension extends AbstractNetworkServiceExtension implements Component, VmDefaultL3NetworkChangedExtensionPoint {
     private static final CLogger logger = Utils.getLogger(DhcpExtension.class);
     private Map<NetworkServiceProviderType, NetworkServiceDhcpBackend> dhcpBackends = new HashMap<NetworkServiceProviderType, NetworkServiceDhcpBackend>();
 
@@ -138,7 +144,7 @@ public class DhcpExtension extends AbstractNetworkServiceExtension implements Co
 
     private Map<NetworkServiceDhcpBackend, List<DhcpStruct>> workoutDhcp(VmInstanceSpec spec) {
         Map<NetworkServiceDhcpBackend, List<DhcpStruct>> map = new HashMap<NetworkServiceDhcpBackend, List<DhcpStruct>>();
-        Map<NetworkServiceProviderType, List<L3NetworkInventory>> providerMap = getNetworkServiceProviderMap(NetworkServiceType.DHCP, spec);
+        Map<NetworkServiceProviderType, List<L3NetworkInventory>> providerMap = getNetworkServiceProviderMap(NetworkServiceType.DHCP, spec.getL3Networks());
 
         for (Map.Entry<NetworkServiceProviderType, List<L3NetworkInventory>> e : providerMap.entrySet()) {
             NetworkServiceProviderType ptype = e.getKey();
@@ -171,5 +177,43 @@ public class DhcpExtension extends AbstractNetworkServiceExtension implements Co
     @Override
     public boolean stop() {
         return true;
+    }
+
+    @Override
+    public void vmDefaultL3NetworkChanged(VmInstanceInventory vm, String previousL3, String nowL3) {
+        List<String> l3Uuids = new ArrayList<String>();
+        if (previousL3 != null) {
+            l3Uuids.add(previousL3);
+        }
+        if (nowL3 != null) {
+            l3Uuids.add(nowL3);
+        }
+
+        SimpleQuery<L3NetworkVO> q = dbf.createQuery(L3NetworkVO.class);
+        q.add(L3NetworkVO_.uuid, Op.IN, l3Uuids);
+        List<L3NetworkVO> vos = q.list();
+        List<L3NetworkInventory> invs = L3NetworkInventory.valueOf(vos);
+        Map<NetworkServiceProviderType, List<L3NetworkInventory>> providerMap = getNetworkServiceProviderMap(NetworkServiceType.DHCP, invs);
+        for (Map.Entry<NetworkServiceProviderType, List<L3NetworkInventory>> e : providerMap.entrySet()) {
+            NetworkServiceProviderType ptype = e.getKey();
+
+            NetworkServiceDhcpBackend bkd = dhcpBackends.get(ptype);
+            if (bkd == null) {
+                throw new CloudRuntimeException(String.format("unable to find NetworkServiceDhcpBackend[provider type: %s]", ptype));
+            }
+
+            bkd.vmDefaultL3NetworkChanged(vm, previousL3, nowL3, new Completion() {
+                @Override
+                public void success() {
+                    // pass
+                }
+
+                @Override
+                public void fail(ErrorCode errorCode) {
+                    //TODO
+                    logger.warn(errorCode.toString());
+                }
+            });
+        }
     }
 }

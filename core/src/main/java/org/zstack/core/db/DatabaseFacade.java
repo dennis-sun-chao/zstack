@@ -4,6 +4,7 @@ import org.zstack.core.db.TransactionalCallback.Operation;
 import org.zstack.header.message.APIListMessage;
 
 import javax.persistence.EntityManager;
+import javax.persistence.Query;
 import javax.persistence.criteria.CriteriaBuilder;
 import javax.sql.DataSource;
 import java.sql.Timestamp;
@@ -16,6 +17,8 @@ public interface DatabaseFacade {
     <T> T findById(long id, Class<T> entityClass);
     
     <T> T findByUuid(String uuid, Class<T> entityClass);
+
+    <T> T find(Query q);
     
     <T> T persist(T entity);
 
@@ -68,4 +71,6 @@ public interface DatabaseFacade {
     DataSource getExtraDataSource();
 
     Timestamp getCurrentSqlTime();
+
+    void installEntityLifeCycleCallback(Class entityClass, EntityEvent evt, EntityLifeCycleCallback cb);
 }

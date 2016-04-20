@@ -112,6 +112,7 @@
     <TestCase class="org.zstack.test.aop.TestAsyncBackup7" />
     <TestCase class="org.zstack.test.aop.TestAsyncBackup8" />
     <TestCase class="org.zstack.test.aop.TestAsyncBackup9" />
+    <TestCase class="org.zstack.test.aop.TestAsyncBackup10" />
     <TestCase class="org.zstack.test.aop.TestWith" />
     <TestCase class="org.zstack.test.aop.TestWith1" />
     <TestCase class="org.zstack.test.aop.TestCompletionCallOnce" />
@@ -139,4 +140,6 @@
     <TestCase class="org.zstack.test.core.gc.TestGC3" />
     <TestCase class="org.zstack.test.core.gc.TestGC4" />
     <TestCase class="org.zstack.test.core.gc.TestGC5" />
+    <TestCase class="org.zstack.test.core.gc.TestGC6" />
+    <TestCase class="org.zstack.test.core.gc.TestGC7" />
 </UnitTestSuiteConfig>
